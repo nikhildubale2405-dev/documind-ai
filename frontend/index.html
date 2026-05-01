@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DocuMind</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 820px;
+      margin: 0 auto;
+      padding: 24px;
+      background: #f8fafc;
+      color: #111827;
+    }
+
+    .card {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 18px;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.04);
+    }
+
+    h1 {
+      margin-top: 0;
+      margin-bottom: 6px;
+      font-size: 30px;
+    }
+
+    .muted {
+      color: #6b7280;
+      margin-top: 0;
+      margin-bottom: 18px;
+    }
+
+    label {
+      display: block;
+      font-weight: 600;
+      margin: 10px 0 6px;
+    }
+
+    input[type="file"],
+    input[type="text"] {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 12px;
+      background: #fff;
+      font-size: 14px;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px 14px;
+      margin-top: 12px;
+      border: none;
+      border-radius: 12px;
+      background: #111827;
+      color: white;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .spinner {
+      width: 22px;
+      height: 22px;
+      border: 3px solid #e5e7eb;
+      border-top: 3px solid #111827;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      display: none;
+      margin: 14px auto 0;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .status {
+      margin-top: 12px;
+      font-size: 14px;
+      color: #374151;
+      white-space: pre-wrap;
+    }
+
+    .success {
+      color: #047857;
+      font-weight: 600;
+    }
+
+    .error {
+      color: #b91c1c;
+      font-weight: 600;
+    }
+
+    .answer {
+      margin-top: 12px;
+      padding: 14px;
+      border-radius: 12px;
+      background: #f3f4f6;
+      white-space: pre-wrap;
+      line-height: 1.55;
+    }
+
+    .sources {
+      margin-top: 12px;
+      padding: 14px;
+      border-radius: 12px;
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      white-space: pre-wrap;
+      font-size: 13px;
+      color: #374151;
+    }
+
+    .pill {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: #e5e7eb;
+      font-size: 12px;
+      margin-right: 8px;
+      margin-bottom: 8px;
+    }
+  </style>
+</head>
+<body>
+  <h1>📄 DocuMind</h1>
+  <p class="muted">Upload a PDF and ask questions about it.</p>
+
+  <div class="card">
+    <h2>Upload PDF</h2>
+    <label for="file">Choose PDF</label>
+    <input type="file" id="file" accept="application/pdf" />
+    <button id="uploadBtn" onclick="uploadPdf()">Upload</button>
+    <div class="spinner" id="uploadSpinner"></div>
+    <div class="status" id="uploadStatus"></div>
+  </div>
+
+  <div class="card">
+    <h2>Ask Question</h2>
+    <label for="query">Question</label>
+    <input type="text" id="query" placeholder="What are the skills?" />
+    <button id="askBtn" onclick="askQuestion()">Ask</button>
+    <div class="spinner" id="askSpinner"></div>
+    <div class="status" id="askStatus"></div>
+    <div class="answer" id="answer">Answer will appear here.</div>
+    <div class="sources" id="sources" style="display:none;"></div>
+  </div>
+
+  <script>
+    const API_BASE = "http://127.0.0.1:8000";
+
+    function setLoading(kind, isLoading, message = "") {
+      const btn = document.getElementById(kind + "Btn");
+      const spinner = document.getElementById(kind + "Spinner");
+      const status = document.getElementById(kind + "Status");
+
+      btn.disabled = isLoading;
+      spinner.style.display = isLoading ? "block" : "none";
+      status.innerHTML = message;
+    }
+
+    async function tryFetchJson(url, options) {
+      const res = await fetch(url, options);
+      let data = {};
+      try {
+        data = await res.json();
+      } catch (e) {
+        data = {};
+      }
+      return { res, data };
+    }
+
+    async function uploadPdf() {
+      const fileInput = document.getElementById("file");
+      const file = fileInput.files[0];
+
+      if (!file) {
+        document.getElementById("uploadStatus").innerHTML =
+          '<span class="error">Please choose a PDF first.</span>';
+        return;
+      }
+
+      setLoading("upload", true, "Uploading and processing PDF...");
+
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        // Try common upload routes
+        const routes = [
+          `${API_BASE}/upload/`,
+          `${API_BASE}/upload`
+        ];
+
+        let result = null;
+        let lastError = null;
+
+        for (const url of routes) {
+          try {
+            const r = await tryFetchJson(url, {
+              method: "POST",
+              body: formData
+            });
+
+            if (r.res.ok) {
+              result = r;
+              break;
+            } else {
+              lastError = r.data.detail || r.data.message || `HTTP ${r.res.status}`;
+            }
+          } catch (err) {
+            lastError = err.message;
+          }
+        }
+
+        if (!result) {
+          throw new Error(lastError || "Upload failed");
+        }
+
+        const data = result.data;
+
+        document.getElementById("uploadStatus").innerHTML =
+          `<span class="success">✅ File uploaded successfully.</span><br>` +
+          `${data.message || "PDF processed"}<br>` +
+          `File: ${file.name}`;
+
+      } catch (err) {
+        console.error(err);
+        document.getElementById("uploadStatus").innerHTML =
+          `<span class="error">Upload error:</span> ${err.message}`;
+      } finally {
+        setLoading("upload", false);
+      }
+    }
+
+    async function askQuestion() {
+      const query = document.getElementById("query").value.trim();
+      const answerBox = document.getElementById("answer");
+      const sourcesBox = document.getElementById("sources");
+
+      if (!query) {
+        document.getElementById("askStatus").innerHTML =
+          '<span class="error">Please type a question.</span>';
+        return;
+      }
+
+      setLoading("ask", true, "Thinking...");
+      answerBox.textContent = "";
+      sourcesBox.style.display = "none";
+      sourcesBox.innerHTML = "";
+
+      try {
+        const routes = [
+          `${API_BASE}/query/?query=${encodeURIComponent(query)}`,
+          `${API_BASE}/?query=${encodeURIComponent(query)}`
+        ];
+
+        let result = null;
+        let lastError = null;
+
+        for (const url of routes) {
+          try {
+            const r = await tryFetchJson(url, { method: "POST" });
+
+            if (r.res.ok) {
+              result = r;
+              break;
+            } else {
+              lastError = r.data.detail || r.data.message || `HTTP ${r.res.status}`;
+            }
+          } catch (err) {
+            lastError = err.message;
+          }
+        }
+
+        if (!result) {
+          throw new Error(lastError || "Query failed");
+        }
+
+        const data = result.data;
+
+        answerBox.textContent = data.answer || "No answer received.";
+
+        if (data.sources && Array.isArray(data.sources) && data.sources.length > 0) {
+          sourcesBox.style.display = "block";
+          sourcesBox.innerHTML =
+            "<strong>Sources:</strong><br>" +
+            data.sources.map((s, i) => {
+              const source = s.source || "Unknown";
+              const page = s.page !== undefined ? `Page ${s.page}` : "Page ?";
+              return `<div style="margin-top:8px;"><span class="pill">${i + 1}</span>${source} — ${page}</div>`;
+            }).join("");
+        }
+
+        document.getElementById("askStatus").innerHTML =
+          '<span class="success">✅ Answer received.</span>';
+
+      } catch (err) {
+        console.error(err);
+        answerBox.textContent = "Error: " + err.message;
+        document.getElementById("askStatus").innerHTML =
+          '<span class="error">Failed.</span>';
+      } finally {
+        setLoading("ask", false);
+      }
+    }
+  </script>
+</body>
+</html>
